@@ -1,8 +1,9 @@
 import requests
-import hashlib
 import logging
 from typing import Dict, Any
 import time
+from urllib.parse import unquote
+from . import auth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,39 +31,57 @@ class TPLinkIPCApiClient:
         self.session = requests.Session()
         _LOGGER.info(f"TPIPC client initialized for host: {self.base_url}")
 
-    def _get_nonce(self) -> str:
-        """Get nonce from the device."""
+    def _get_auth_info(self) -> Dict[str, Any]:
+        """Get authentication info (nonce, key, encrypt_type) from the device."""
         url = f"{self.base_url}/pc/Content.htm"
         try:
             response = requests.get(url, timeout=5)
             # response.raise_for_status()
             data = response.json()
-            nonce = data.get("data", {}).get("nonce")
+            auth_data = data.get("data", {})
+            nonce = auth_data.get("nonce")
+            key = auth_data.get("key")
+            encrypt_type = auth_data.get("encrypt_type")
+            
             if not nonce:
                 raise TPIPCApiError("Failed to get nonce from device.", data)
-            return nonce
+            if not key:
+                raise TPIPCApiError("Failed to get public key from device.", data)
+            
+            return {
+                "nonce": nonce,
+                "key": unquote(key), # Decode key if it's URL encoded
+                "encrypt_type": encrypt_type
+            }
         except requests.RequestException as e:
-            raise TPIPCApiError(f"Network error while getting nonce: {e}") from e
-
-    def _encrypt_password(self, nonce: str) -> str:
-        """Encrypt password with nonce."""
-        return hashlib.md5(f"{self.password}:{nonce}".encode("utf-8")).hexdigest()
+            raise TPIPCApiError(f"Network error while getting auth info: {e}") from e
 
     def _login(self):
         """Login to the device to get a stok."""
         _LOGGER.info("Attempting to login...")
-        nonce = self._get_nonce()
-        encrypted_password = self._encrypt_password(nonce)
+        auth_info = self._get_auth_info()
+        nonce = auth_info["nonce"]
+        key = auth_info["key"]
+        encrypt_type = auth_info["encrypt_type"]
+        
+        encrypted_password, encrypt_type_to_use = auth.encrypt_password(
+            self.password, nonce, key, encrypt_type
+        )
+        
         url = f"{self.base_url}/"
         payload = {
             "method": "do",
             "login": {
                 "username": self.username,
                 "password": encrypted_password,
-                "encrypt_type": "3",
-                "md5_encrypt_type": "1"
+                "encrypt_type": encrypt_type_to_use
             }
         }
+        
+        # Only add md5_encrypt_type for type 3
+        if encrypt_type_to_use == "3":
+            payload["login"]["md5_encrypt_type"] = "1"
+        
         try:
             response = self.session.post(url, json=payload, timeout=5)
             response.raise_for_status()
