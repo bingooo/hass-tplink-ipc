@@ -43,6 +43,8 @@ class TPLinkIPCApiClient:
             key = auth_data.get("key")
             encrypt_type = auth_data.get("encrypt_type")
             
+            _LOGGER.debug(f"Auth data, {auth_data}")
+
             if not nonce:
                 raise TPIPCApiError("Failed to get nonce from device.", data)
             if not key:
@@ -82,6 +84,7 @@ class TPLinkIPCApiClient:
         if encrypt_type_to_use == "3":
             payload["login"]["md5_encrypt_type"] = "1"
         
+        _LOGGER.debug(f"Login payload, {payload}")
         try:
             response = self.session.post(url, json=payload, timeout=5)
             response.raise_for_status()
