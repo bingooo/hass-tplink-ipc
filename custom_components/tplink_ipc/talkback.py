@@ -34,9 +34,20 @@ class TPLinkTalkbackPlayer:
             local_port = udp_sock.getsockname()[1]
             ffmpeg_target_url = f'rtp://127.0.0.1:{local_port}'
 
+            adelay = 300
             command = [
-                'ffmpeg', '-re', '-i', media_url, '-af', 'adelay=2500|2500', '-acodec', 'pcm_alaw',
-                '-ar', '8000', '-ac', '1', '-f', 'rtp', ffmpeg_target_url
+                'ffmpeg',
+                '-re',                          
+                '-i', media_url,                
+                '-af', (
+                    f'aresample=8000,'          
+                    f'pan=mono|c0=c0,'          
+                    f'adelay={adelay}:all=1,' 
+                    f'arealtime'                
+                ),
+                '-acodec', 'pcm_alaw',          
+                '-f', 'rtp',                    
+                ffmpeg_target_url               
             ]
             
             _LOGGER.info(f"Starting FFmpeg to play: {media_url}")

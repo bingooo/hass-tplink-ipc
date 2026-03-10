@@ -1,10 +1,12 @@
 import logging
-from urllib.parse import urljoin
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaType,
+)
+from homeassistant.components.media_player.browse_media import (
+    async_process_play_media_url,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -17,7 +19,6 @@ from homeassistant.components.media_source import (
     is_media_source_id,
 )
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.network import get_url
 
 from .const import DOMAIN
 from .models import TPLinkCameraData
@@ -93,8 +94,7 @@ class TPLinkCameraPlayerEntity(MediaPlayerEntity):
             return
 
         if media_url.startswith("/"):
-            base_url = get_url(self.hass)
-            absolute_url = urljoin(base_url, media_url)
+            absolute_url = async_process_play_media_url(self.hass, media_url)
             _LOGGER.info(f"Converted relative path to absolute URL: {absolute_url}")
         else:
             absolute_url = media_url
