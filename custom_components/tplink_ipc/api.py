@@ -1,8 +1,11 @@
-import requests
 import logging
-from typing import Dict, Any
 import time
+from threading import Lock
+from typing import Any, Dict
 from urllib.parse import unquote
+
+import requests
+
 from . import auth
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,7 +32,15 @@ class TPLinkIPCApiClient:
         self.password = password
         self.stok = None
         self.session = requests.Session()
+        self._request_lock = Lock()
         _LOGGER.info(f"TPIPC client initialized for host: {self.base_url}")
+
+    def _reset_auth(self) -> None:
+        """Discard the current authentication state and HTTP session."""
+        old_session = self.session
+        self.stok = None
+        self.session = requests.Session()
+        old_session.close()
 
     def _get_auth_info(self) -> Dict[str, Any]:
         """Get authentication info (nonce, key, encrypt_type) from the device."""
@@ -99,6 +110,11 @@ class TPLinkIPCApiClient:
 
     def request(self, payload: Dict[str, Any], retry: bool = True) -> Dict[str, Any]:
         """Send a request to the device."""
+        with self._request_lock:
+            return self._request(payload, retry)
+
+    def _request(self, payload: Dict[str, Any], retry: bool) -> Dict[str, Any]:
+        """Send a request while holding the client request lock."""
         if not self.stok:
             self._login()
         
@@ -106,17 +122,23 @@ class TPLinkIPCApiClient:
         try:
             headers = {"Content-Type": "application/json; charset=utf-8", "User-Agent": "TP-LINK_APP"}
             response = self.session.post(url, json=payload, timeout=10, headers=headers)
+
+            if response.status_code == 401 and retry:
+                _LOGGER.warning("Camera session expired. Re-logging in and retrying request.")
+                self._reset_auth()
+                return self._request(payload, retry=False)
+
             response.raise_for_status()
             data = response.json()
             error_code = data.get("error_code", 0)
 
             if error_code == -40401 and retry:
                 _LOGGER.warning("STOK expired or invalid. Re-logging in and retrying request.")
-                self.stok = None
-                return self.request(payload, retry=False)
-            
+                self._reset_auth()
+                return self._request(payload, retry=False)
+
             if error_code != 0:
-                 _LOGGER.warning(f"API returned error: {data}")
+                _LOGGER.warning(f"API returned error: {data}")
 
             return data
         except requests.RequestException as e:
