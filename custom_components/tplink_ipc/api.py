@@ -40,7 +40,10 @@ class TPLinkIPCApiClient:
         old_session = self.session
         self.stok = None
         self.session = requests.Session()
-        old_session.close()
+        try:
+            old_session.close()
+        except Exception:
+            _LOGGER.warning("Failed to close expired camera session.", exc_info=True)
 
     def _get_auth_info(self) -> Dict[str, Any]:
         """Get authentication info (nonce, key, encrypt_type) from the device."""
